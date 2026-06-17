@@ -31,6 +31,7 @@ import {
 import { isTerminal } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
 import { StateTimeline } from "@/components/swap/StateTimeline";
+import { RolePlayBanner } from "@/components/swap/RolePlayBanner";
 import { RelayStatus } from "@/components/RelayStatus";
 
 export default function ExplorerPage() {
@@ -83,6 +84,8 @@ export default function ExplorerPage() {
         </Link>
         <RelayStatus />
       </div>
+
+      <RolePlayBanner />
 
       <h1 className="text-2xl font-semibold">Swap explorer</h1>
       <p className="mt-1 text-sm text-neutral-500">

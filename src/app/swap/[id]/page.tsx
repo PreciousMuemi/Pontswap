@@ -27,6 +27,7 @@ import { StateTimeline } from "@/components/swap/StateTimeline";
 import { ActionButton } from "@/components/swap/ActionButton";
 import { GiftWrapPanel } from "@/components/swap/GiftWrapPanel";
 import { EvidenceForm } from "@/components/swap/EvidenceForm";
+import { RolePlayBanner } from "@/components/swap/RolePlayBanner";
 import type { SwapRequestContent } from "@/lib/pontmore/kinds";
 
 const REASONS: Partial<Record<SwapState, string>> = {
@@ -95,9 +96,7 @@ export default function SwapRoomPage() {
         </div>
       </div>
 
-      <p className="mb-6 rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-        ROLE-PLAY — no real funds move.
-      </p>
+      <RolePlayBanner />
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Swap room</h1>

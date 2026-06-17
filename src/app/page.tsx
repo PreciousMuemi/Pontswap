@@ -31,13 +31,36 @@ export default function Home() {
       <section className="space-y-3">
         <h1 className="text-2xl font-semibold">Pontmore Swap</h1>
         <p className="text-neutral-500">
-          A Nostr-native coordination layer for Bitcoin ⇄ fiat swaps. Every
-          public state change is a real Nostr event; sensitive payment details
-          move through NIP-59 Gift Wrap.
+          A Nostr-native coordination layer for Bitcoin ⇄ fiat swaps,
+          implementing the PIP-02 swap state machine. Every public state change
+          is a real Nostr event on public relays; sensitive payment details move
+          privately through NIP-59 Gift Wrap.
         </p>
-        <p className="rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-          ROLE-PLAY — no real funds move.
-        </p>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-md border border-green-400/40 bg-green-50 p-3 text-sm dark:bg-green-950/20">
+            <p className="font-medium text-green-700 dark:text-green-400">
+              What&apos;s real
+            </p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-neutral-600 dark:text-neutral-400">
+              <li>Live Nostr identities (NIP-07) and signatures</li>
+              <li>7300/7301/7302/30362 events on public relays</li>
+              <li>Append-only, matrix-validated state machine</li>
+              <li>End-to-end-encrypted payment instructions (NIP-59)</li>
+            </ul>
+          </div>
+          <div className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
+            <p className="font-medium text-amber-700 dark:text-amber-400">
+              What&apos;s role-play
+            </p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-neutral-600 dark:text-neutral-400">
+              <li>No real money — “Funded”/“Released” are honor-system</li>
+              <li>No Lightning invoices or escrow custody</li>
+              <li>No disputes, reputation, or btc → fiat (v1)</li>
+              <li>Publish agents/escrow at poc.pontmore.xyz, not here</li>
+            </ul>
+          </div>
+        </div>
       </section>
 
       <nav className="flex flex-wrap gap-3">

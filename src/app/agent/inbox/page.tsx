@@ -16,6 +16,7 @@ import { canTransition, type SwapState } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
 import { SignerGate, SignerBadge, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
+import { RolePlayBanner } from "@/components/swap/RolePlayBanner";
 
 export default function InboxPage() {
   return (
@@ -29,9 +30,7 @@ export default function InboxPage() {
           <SignerBadge />
         </div>
       </div>
-      <p className="mb-6 rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-        ROLE-PLAY — no real funds move.
-      </p>
+      <RolePlayBanner />
       <h1 className="text-2xl font-semibold">Agent inbox</h1>
       <p className="mt-1 text-sm text-neutral-500">
         Incoming swap requests addressed to your identity, live.

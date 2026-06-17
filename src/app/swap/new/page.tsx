@@ -13,6 +13,7 @@ import { publishSwapRequest } from "@/lib/pontmore/swap";
 import { tryNpubToHex, shortNpub } from "@/lib/pontmore/nip19";
 import { SignerGate, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
+import { RolePlayBanner } from "@/components/swap/RolePlayBanner";
 
 export default function NewSwapPage() {
   return (
@@ -31,9 +32,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </Link>
         <RelayStatus />
       </div>
-      <p className="mb-6 rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-        ROLE-PLAY — no real funds move.
-      </p>
+      <RolePlayBanner />
       {children}
     </main>
   );
