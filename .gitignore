@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Out-of-scope local file, not part of this app (untracked intentionally)
+/daemon.ts
