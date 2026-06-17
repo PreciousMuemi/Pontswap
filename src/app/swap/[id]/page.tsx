@@ -116,6 +116,12 @@ export default function SwapRoomPage() {
       <p className="mt-1 break-all font-mono text-xs text-neutral-400">
         {swapId}
       </p>
+      <Link
+        href={`/swap/${swapId}/explorer`}
+        className="text-xs text-neutral-500 underline"
+      >
+        public explorer →
+      </Link>
 
       {!loaded && (
         <p className="mt-6 text-sm text-neutral-500">Loading swap…</p>
