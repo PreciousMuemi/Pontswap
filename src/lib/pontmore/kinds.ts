@@ -20,6 +20,11 @@ export const KIND_DISPUTE = 7303 as const;
 export const KIND_NOTE = 7304 as const;
 export const KIND_SNAPSHOT = 30362 as const;
 
+// NIP-59 Gift Wrap layers (private messaging).
+export const KIND_SEAL = 13 as const; // signed by sender, wraps the rumor
+export const KIND_RUMOR = 14 as const; // unsigned inner message
+export const KIND_GIFT_WRAP = 1059 as const; // signed by an ephemeral key
+
 // --- Shared primitives ---------------------------------------------------
 
 /** 64-character hex Nostr pubkey. UI converts npub <-> hex at the edge. */
@@ -199,6 +204,27 @@ export const EscrowDescriptorContent = z
   })
   .passthrough();
 export type EscrowDescriptorContent = z.infer<typeof EscrowDescriptorContent>;
+
+// --- Private (gift-wrapped) message content -----------------------------
+//
+// These payloads travel ONLY inside a NIP-59 gift wrap (kind 1059). The
+// swap_id lives here, inside the encrypted rumor — never as a public tag.
+
+/** Payment instructions an agent sends privately to a customer. */
+export const PaymentInstructionsContent = z.object({
+  type: z.literal("payment_instructions"),
+  swap_id: z.string().min(1),
+  rail: z.string().min(1), // mpesa, bank-transfer, ...
+  payee: z.string().min(1), // Till / Paybill / account number
+  account: z.string().optional(), // Paybill account reference
+  amount: z.string().regex(/^\d+(\.\d+)?$/),
+  currency: z.string().min(3).max(8),
+  reference: z.string().optional(), // expected narration the customer should use
+  note: z.string().optional(),
+});
+export type PaymentInstructionsContent = z.infer<
+  typeof PaymentInstructionsContent
+>;
 
 // --- Helpers -------------------------------------------------------------
 

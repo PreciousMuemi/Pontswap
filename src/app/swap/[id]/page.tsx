@@ -23,6 +23,8 @@ import { SignerGate, SignerBadge, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
 import { StateTimeline } from "@/components/swap/StateTimeline";
 import { ActionButton } from "@/components/swap/ActionButton";
+import { GiftWrapPanel } from "@/components/swap/GiftWrapPanel";
+import type { SwapRequestContent } from "@/lib/pontmore/kinds";
 
 const REASONS: Partial<Record<SwapState, string>> = {
   funded: "Escrow funded (role-play).",
@@ -154,20 +156,65 @@ export default function SwapRoomPage() {
       )}
 
       {request && view.requestEvent && (
-        <section className="mt-8">
-          <h2 className="mb-3 text-lg font-semibold">Actions</h2>
+        <div className="mt-8">
           <SignerGate>
-            <Actions
+            <ParticipantArea
               swapId={swapId}
               currentState={view.state}
               requestEventId={view.requestEvent.id}
-              customer={request.customer}
-              agent={request.agent}
+              request={request}
             />
           </SignerGate>
-        </section>
+        </div>
       )}
     </main>
+  );
+}
+
+function ParticipantArea({
+  swapId,
+  currentState,
+  requestEventId,
+  request,
+}: {
+  swapId: string;
+  currentState: SwapState;
+  requestEventId: string;
+  request: SwapRequestContent;
+}) {
+  const { pubkey } = useSigner();
+  const myRole: ActorRole | null =
+    pubkey === request.customer
+      ? "customer"
+      : pubkey === request.agent
+        ? "agent"
+        : null;
+
+  return (
+    <div className="space-y-8">
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Private messages</h2>
+        <GiftWrapPanel
+          swapId={swapId}
+          myRole={myRole}
+          customerHex={request.customer}
+          agentHex={request.agent}
+          defaultRail={request.fiat.rail}
+          defaultAmount={request.fiat.amount}
+          defaultCurrency={request.fiat.currency}
+        />
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Actions</h2>
+        <Actions
+          swapId={swapId}
+          currentState={currentState}
+          requestEventId={requestEventId}
+          myRole={myRole}
+        />
+      </section>
+    </div>
   );
 }
 
@@ -175,22 +222,17 @@ function Actions({
   swapId,
   currentState,
   requestEventId,
-  customer,
-  agent,
+  myRole,
 }: {
   swapId: string;
   currentState: SwapState;
   requestEventId: string;
-  customer: string;
-  agent: string;
+  myRole: ActorRole | null;
 }) {
-  const { signer, pubkey } = useSigner();
+  const { signer } = useSigner();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const myRole: ActorRole | null =
-    pubkey === customer ? "customer" : pubkey === agent ? "agent" : null;
 
   const targets = myRole ? nextStatesFor(currentState, myRole) : [];
 
