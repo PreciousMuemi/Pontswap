@@ -132,6 +132,74 @@ export const SnapshotContent = z.object({
 });
 export type SnapshotContent = z.infer<typeof SnapshotContent>;
 
+// --- PIP-00 / PIP-01 discovery content (read-only) ----------------------
+//
+// This app is a pure *consumer* of 30360 / 30361. Real demo data on the
+// network is inconsistent (two agent shapes, string-or-number limits, the
+// reference POC's hyphenated swap_types), and kind 30361 is shared with an
+// unrelated NIP-29 group app. These schemas are deliberately lenient so the
+// canonical reference-POC agents parse, while `.passthrough()` preserves
+// fields the UI doesn't model. Escrow REQUIRES `escrow_type` so non-Pontmore
+// noise on 30361 fails validation and is skipped by discovery.ts.
+
+const StringOrNumber = z.union([z.string(), z.number()]);
+
+const AgentLimits = z
+  .object({
+    min: StringOrNumber.optional(),
+    max: StringOrNumber.optional(),
+  })
+  .passthrough();
+
+const AgentCapabilities = z
+  .object({
+    swap_types: z.array(z.string()).optional(),
+    fiat_currencies: z.array(z.string()).optional(),
+    payment_channels: z.array(z.string()).optional(),
+    settlement_networks: z.array(z.string()).optional(),
+    region: z.string().optional(), // older single-region shape
+    regions: z.array(z.string()).optional(), // reference-POC shape
+    limits: AgentLimits.optional(),
+  })
+  .passthrough();
+
+/** kind 30360 — agent definition (PIP-00). */
+export const AgentDefinitionContent = z
+  .object({
+    version: StringOrNumber.optional(),
+    name: z.string().min(1),
+    about: z.string().optional(),
+    // Required: real PIP-00 agents always advertise capabilities. This also
+    // rejects unrelated apps that publish bare {"name": ...} on kind 30360
+    // (e.g. NIP-29 group snapshots).
+    capabilities: AgentCapabilities,
+    pricing_policy: z.string().optional(),
+    escrow: z
+      .object({
+        descriptor: z.string().optional(), // 30361 coordinate
+        notes: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    updated_at: StringOrNumber.optional(),
+  })
+  .passthrough();
+export type AgentDefinitionContent = z.infer<typeof AgentDefinitionContent>;
+
+/** kind 30361 — escrow descriptor (PIP-01). */
+export const EscrowDescriptorContent = z
+  .object({
+    version: StringOrNumber.optional(),
+    escrow_type: z.string().min(1), // required: rejects non-Pontmore 30361 noise
+    networks: z.array(z.string()).optional(),
+    funding_rules: z.record(z.string(), z.unknown()).optional(),
+    release_rules: z.record(z.string(), z.unknown()).optional(),
+    dispute_rules: z.record(z.string(), z.unknown()).optional(),
+    reference_format: z.string().optional(),
+  })
+  .passthrough();
+export type EscrowDescriptorContent = z.infer<typeof EscrowDescriptorContent>;
+
 // --- Helpers -------------------------------------------------------------
 
 /**
