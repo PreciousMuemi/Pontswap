@@ -25,8 +25,12 @@ import type { Signer } from "./signer";
 import {
   KIND_SWAP_REQUEST,
   KIND_TRANSITION,
+  KIND_EVIDENCE,
+  KIND_SNAPSHOT,
   SwapRequestContent,
   TransitionContent,
+  EvidenceContent,
+  SnapshotContent,
   parseContent,
   type FiatLeg,
   type BitcoinLeg,
@@ -166,6 +170,121 @@ export function subscribeSwap(
   return subscribe([{ "#d": [swapId] }], onEvent);
 }
 
+export type PostEvidenceParams = {
+  swapId: string;
+  type: string; // fiat_transfer_reference, payout_proof, ...
+  ref?: string; // public opaque reference (e.g. M-Pesa code)
+  refHash?: string; // sha256 of a private artifact, hex
+  note?: string;
+  requestEventId: string; // 7300 id, for the ["e"] link
+};
+
+/**
+ * Publish a kind 7302 evidence event. The schema requires at least one of
+ * `ref` / `refHash`. Sensitive artifacts (screenshots) should be hashed and the
+ * hash sent privately via gift wrap — never put the artifact in this public
+ * event.
+ */
+export async function postEvidence(
+  signer: Signer,
+  params: PostEvidenceParams,
+): Promise<Event> {
+  const content = EvidenceContent.parse({
+    swap_id: params.swapId,
+    type: params.type,
+    ...(params.ref ? { ref: params.ref } : {}),
+    ...(params.refHash ? { ref_hash: params.refHash } : {}),
+    ...(params.note ? { note: params.note } : {}),
+  });
+
+  const event = await signer.signEvent({
+    kind: KIND_EVIDENCE,
+    created_at: nowSeconds(),
+    tags: [
+      ["e", params.requestEventId],
+      ["swap_id", params.swapId],
+      ["d", params.swapId],
+    ],
+    content: JSON.stringify(content),
+  });
+
+  await publishEvent(event);
+  return event;
+}
+
+/**
+ * Publish a kind 30362 swap snapshot — an addressable, replaceable materialized
+ * view of the final swap state, keyed by ["d", swap_id].
+ */
+export async function publishSnapshot(
+  signer: Signer,
+  snapshot: SnapshotContent,
+): Promise<Event> {
+  const content = SnapshotContent.parse(snapshot);
+  const event = await signer.signEvent({
+    kind: KIND_SNAPSHOT,
+    created_at: nowSeconds(),
+    tags: [
+      ["d", snapshot.swap_id],
+      ["swap_id", snapshot.swap_id],
+    ],
+    content: JSON.stringify(content),
+  });
+
+  await publishEvent(event);
+  return event;
+}
+
+/** Parse a 7302 event's content, or null if invalid. */
+export function parseEvidence(event: Event) {
+  try {
+    return parseContent(EvidenceContent, event.content);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Assemble a 30362 snapshot from a swap's request and its event history. The
+ * transitions list and evidence refs are derived from the chain — the snapshot
+ * is a materialized view, not a new source of truth.
+ */
+export function buildSnapshotContent(
+  request: SwapRequestContent,
+  events: Event[],
+  finalState: SwapState,
+): SnapshotContent {
+  const view = currentStateFromHistory(events);
+
+  const transitions = view.steps.map((s) => {
+    const c = parseTransition(s.event);
+    return {
+      state: s.to,
+      actor_role: s.role,
+      at: c?.created_at ?? s.event.created_at,
+      event_id: s.event.id,
+    };
+  });
+
+  const evidenceRefs = events
+    .filter((e) => e.kind === KIND_EVIDENCE)
+    .map((e) => parseEvidence(e)?.ref)
+    .filter((r): r is string => !!r);
+
+  return SnapshotContent.parse({
+    swap_id: request.swap_id,
+    final_state: finalState,
+    agent: request.agent,
+    customer: request.customer,
+    swap_type: request.swap_type,
+    fiat: request.fiat,
+    bitcoin: request.bitcoin,
+    transitions,
+    ...(evidenceRefs.length ? { evidence_refs: evidenceRefs } : {}),
+    completed_at: nowSeconds(),
+  });
+}
+
 /** Read the swap_id tag off an event, if present. */
 export function swapIdOf(event: Event): string | null {
   return event.tags.find((t) => t[0] === "swap_id")?.[1] ?? null;
@@ -202,6 +321,38 @@ export type SwapStateView = {
   steps: { to: SwapState; role: ActorRole; event: Event }[];
 };
 
+type RawStep = {
+  to: SwapState;
+  from: SwapState;
+  role: ActorRole;
+  event: Event;
+};
+
+/**
+ * Order a set of 7301 transitions into chain order. Nostr `created_at` is
+ * second-resolution, so several transitions can share a timestamp and a plain
+ * time sort is unreliable. We instead follow the prev_state → state linkage
+ * from "requested", using created_at only to break ties among candidates and
+ * as a fallback when no transition links to the current state (e.g. a forged or
+ * out-of-order step, which replay will then flag as invalid).
+ */
+function orderTransitionSteps(steps: RawStep[]): RawStep[] {
+  const remaining = [...steps].sort(
+    (a, b) => a.event.created_at - b.event.created_at,
+  );
+  const ordered: RawStep[] = [];
+  let current: SwapState = "requested";
+
+  while (remaining.length) {
+    let idx = remaining.findIndex((s) => s.from === current);
+    if (idx === -1) idx = 0; // unlinked: take earliest, let replay flag it
+    const [next] = remaining.splice(idx, 1);
+    ordered.push(next);
+    current = next.to;
+  }
+  return ordered;
+}
+
 /**
  * Derive current swap state by replaying the 7301 chain over a set of events.
  * State is ALWAYS computed this way — never stored. The 7300 establishes the
@@ -211,17 +362,20 @@ export function currentStateFromHistory(events: Event[]): SwapStateView {
   const requestEvent =
     events.find((e) => e.kind === KIND_SWAP_REQUEST) ?? null;
 
-  const steps = events
+  const raw = events
     .filter((e) => e.kind === KIND_TRANSITION)
-    .map((event) => {
+    .map((event): RawStep | null => {
       const c = parseTransition(event);
-      return c ? { to: c.state, role: c.actor_role, event } : null;
+      return c
+        ? { to: c.state, from: c.prev_state, role: c.actor_role, event }
+        : null;
     })
-    .filter((s): s is { to: SwapState; role: ActorRole; event: Event } => !!s)
-    .sort((a, b) => a.event.created_at - b.event.created_at);
+    .filter((s): s is RawStep => !!s);
+
+  const ordered = orderTransitionSteps(raw);
 
   const replay = replayTransitions(
-    steps.map((s) => ({ to: s.to, role: s.role })),
+    ordered.map((s) => ({ to: s.to, role: s.role })),
   );
 
   return {
@@ -229,6 +383,6 @@ export function currentStateFromHistory(events: Event[]): SwapStateView {
     state: replay.state,
     ok: replay.ok,
     invalidIndex: replay.ok ? null : replay.invalidIndex,
-    steps,
+    steps: ordered.map((s) => ({ to: s.to, role: s.role, event: s.event })),
   };
 }

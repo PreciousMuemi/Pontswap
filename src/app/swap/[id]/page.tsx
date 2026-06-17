@@ -11,6 +11,8 @@ import {
   parseSwapRequest,
   appendTransition,
   currentStateFromHistory,
+  buildSnapshotContent,
+  publishSnapshot,
 } from "@/lib/pontmore/swap";
 import {
   nextStatesFor,
@@ -24,6 +26,7 @@ import { RelayStatus } from "@/components/RelayStatus";
 import { StateTimeline } from "@/components/swap/StateTimeline";
 import { ActionButton } from "@/components/swap/ActionButton";
 import { GiftWrapPanel } from "@/components/swap/GiftWrapPanel";
+import { EvidenceForm } from "@/components/swap/EvidenceForm";
 import type { SwapRequestContent } from "@/lib/pontmore/kinds";
 
 const REASONS: Partial<Record<SwapState, string>> = {
@@ -163,6 +166,7 @@ export default function SwapRoomPage() {
               currentState={view.state}
               requestEventId={view.requestEvent.id}
               request={request}
+              events={eventList}
             />
           </SignerGate>
         </div>
@@ -176,11 +180,13 @@ function ParticipantArea({
   currentState,
   requestEventId,
   request,
+  events,
 }: {
   swapId: string;
   currentState: SwapState;
   requestEventId: string;
   request: SwapRequestContent;
+  events: Event[];
 }) {
   const { pubkey } = useSigner();
   const myRole: ActorRole | null =
@@ -212,6 +218,8 @@ function ParticipantArea({
           currentState={currentState}
           requestEventId={requestEventId}
           myRole={myRole}
+          request={request}
+          events={events}
         />
       </section>
     </div>
@@ -223,39 +231,79 @@ function Actions({
   currentState,
   requestEventId,
   myRole,
+  request,
+  events,
 }: {
   swapId: string;
   currentState: SwapState;
   requestEventId: string;
   myRole: ActorRole | null;
+  request: SwapRequestContent;
+  events: Event[];
 }) {
-  const { signer } = useSigner();
+  const { signer, nip44Supported } = useSigner();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const targets = myRole ? nextStatesFor(currentState, myRole) : [];
 
+  // The customer's funded → fiat_sent move goes through the evidence form.
+  const useEvidenceForm = myRole === "customer" && currentState === "funded";
+
   async function act(to: SwapState) {
     if (!signer || !myRole) return;
     setError(null);
     setBusy(true);
     try {
-      await appendTransition(signer, {
-        swapId,
-        state: to,
-        prevState: currentState,
-        actorRole: myRole,
-        reason: REASONS[to] ?? `Moved to ${to}.`,
-        requestEventId,
-      });
-      // Live subscription will fold the new 7301 into the timeline.
+      if (to === "released" && myRole === "agent") {
+        await finalizeRelease();
+      } else {
+        await appendTransition(signer, {
+          swapId,
+          state: to,
+          prevState: currentState,
+          actorRole: myRole,
+          reason: REASONS[to] ?? `Moved to ${to}.`,
+          requestEventId,
+        });
+      }
+      // Live subscription will fold the new event(s) into the timeline.
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transition failed.");
     } finally {
       setBusy(false);
     }
+  }
+
+  // Release is the terminal happy-path action: release the BTC (role-play),
+  // acknowledge completion, and immediately publish the 30362 snapshot built
+  // from the now-complete chain.
+  async function finalizeRelease() {
+    if (!signer) return;
+    const releasedEv = await appendTransition(signer, {
+      swapId,
+      state: "released",
+      prevState: currentState,
+      actorRole: "agent",
+      reason: REASONS.released!,
+      requestEventId,
+    });
+    const completedEv = await appendTransition(signer, {
+      swapId,
+      state: "completed",
+      prevState: "released",
+      actorRole: "agent",
+      reason: REASONS.completed!,
+      requestEventId,
+    });
+    const snapshot = buildSnapshotContent(
+      request,
+      [...events, releasedEv, completedEv],
+      "completed",
+    );
+    await publishSnapshot(signer, snapshot);
   }
 
   if (!myRole) {
@@ -280,22 +328,34 @@ function Actions({
         You are the <span className="font-medium">{myRole}</span>. Only legal
         moves are shown.
       </p>
+
+      {useEvidenceForm && (
+        <EvidenceForm
+          swapId={swapId}
+          requestEventId={requestEventId}
+          agentHex={request.agent}
+          nip44Supported={nip44Supported}
+        />
+      )}
+
       <div className="flex flex-wrap gap-2">
         {targets.length === 0 && (
           <p className="text-sm text-neutral-500">
             Nothing for you to do right now — waiting on the other party.
           </p>
         )}
-        {targets.map((to) => (
-          <ActionButton
-            key={to}
-            from={currentState}
-            to={to}
-            role={myRole}
-            busy={busy}
-            onAct={act}
-          />
-        ))}
+        {targets
+          .filter((to) => !(useEvidenceForm && to === "fiat_sent"))
+          .map((to) => (
+            <ActionButton
+              key={to}
+              from={currentState}
+              to={to}
+              role={myRole}
+              busy={busy}
+              onAct={act}
+            />
+          ))}
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
