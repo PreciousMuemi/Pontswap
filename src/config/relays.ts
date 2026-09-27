@@ -5,5 +5,6 @@
 // (see relay.ts), so this list can include hosts that are occasionally down.
 
 export const DEFAULT_RELAYS: readonly string[] = [
-  "ws://localhost:7777", // TEMP e2e
+  "wss://nos.lol",
+  "wss://relay.damus.io",
 ];
