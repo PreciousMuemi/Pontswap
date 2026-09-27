@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "smoke": "tsx scripts/smoke-test-swap.ts"
+    "smoke": "tsx scripts/smoke-test-swap.ts",
+    "test": "tsx --test src/lib/matching/agent-matching.test.ts"
   },
   "dependencies": {
     "next": "16.2.9",
