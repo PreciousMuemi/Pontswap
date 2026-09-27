@@ -11,7 +11,10 @@ import {
   fetchSwapHistory,
   currentStateFromHistory,
 } from "@/lib/pontmore/swap";
-import type { SwapRequestContent } from "@/lib/pontmore/kinds";
+import {
+  destinationAmountLabel,
+  type SwapRequestContent,
+} from "@/lib/pontmore/kinds";
 import { canTransition, type SwapState } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
 import { SignerGate, SignerBadge, useSigner } from "@/components/SignerGate";
@@ -153,6 +156,14 @@ function RequestCard({ item }: { item: Item }) {
           <p className="text-xs text-neutral-500">
             via {content.fiat.rail} · payout {content.bitcoin.payout}
           </p>
+          {content.corridor && (
+            <p className="text-xs text-neutral-500">
+              cross-border {content.corridor.origin_country} →{" "}
+              {content.corridor.destination_country} · recipient gets{" "}
+              {destinationAmountLabel(content.corridor)} via{" "}
+              {content.corridor.payout_method}
+            </p>
+          )}
         </div>
         <StatusBadge state={state} expired={expired} />
       </div>

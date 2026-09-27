@@ -21,6 +21,7 @@ import {
   type ActorRole,
 } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
+import { destinationAmountLabel } from "@/lib/pontmore/kinds";
 import { SignerGate, SignerBadge, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
 import { StateTimeline } from "@/components/swap/StateTimeline";
@@ -140,10 +141,27 @@ export default function SwapRoomPage() {
             label="You pay"
             value={`${request.fiat.amount} ${request.fiat.currency} (${request.fiat.rail})`}
           />
-          <Detail
-            label="You receive"
-            value={`${request.bitcoin.amount_sats} sats (${request.bitcoin.payout})`}
-          />
+          {request.corridor ? (
+            <>
+              <Detail
+                label="Corridor"
+                value={`${request.corridor.origin_country} → ${request.corridor.destination_country}`}
+              />
+              <Detail
+                label="Recipient gets"
+                value={`${destinationAmountLabel(request.corridor)} (${request.corridor.payout_method})`}
+              />
+              <Detail
+                label="Settlement"
+                value={`${request.bitcoin.amount_sats} sats ${request.corridor.settlement_asset} (${request.bitcoin.payout})`}
+              />
+            </>
+          ) : (
+            <Detail
+              label="You receive"
+              value={`${request.bitcoin.amount_sats} sats (${request.bitcoin.payout})`}
+            />
+          )}
           <Detail
             label="Expiry"
             value={new Date(request.expiry * 1000).toLocaleString()}

@@ -12,6 +12,10 @@
 //   2. the publishing actor is permitted to move from `prev_state` to `state`
 //      according to the matrix below
 //
+// `cross_border` swaps reuse this matrix unchanged: the customer pays origin
+// fiat to the agent against BTC escrow exactly as in fiat_to_btc; the corridor
+// only changes where the payout lands (destination currency / payout method).
+//
 // A mirrored matrix for `btc_to_fiat` is intentionally out of scope for v1.
 
 export const SWAP_STATES = [

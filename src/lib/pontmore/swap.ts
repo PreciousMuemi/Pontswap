@@ -34,6 +34,7 @@ import {
   parseContent,
   type FiatLeg,
   type BitcoinLeg,
+  type Corridor,
   type SwapType,
 } from "./kinds";
 import { replayTransitions, type SwapState, type ActorRole } from "./states";
@@ -48,7 +49,8 @@ export type PublishSwapRequestParams = {
   escrowReference: string; // 30361 coordinate
   fiat: FiatLeg;
   bitcoin: BitcoinLeg;
-  swapType?: SwapType; // defaults to fiat_to_btc (v1 scope)
+  corridor?: Corridor; // cross-border only
+  swapType?: SwapType; // defaults to cross_border if corridor given, else fiat_to_btc
   expiry?: number; // unix seconds; defaults to now + 1h
   swapId?: string; // override for deterministic tests
 };
@@ -67,12 +69,14 @@ export async function publishSwapRequest(
   const content = SwapRequestContent.parse({
     version: 1,
     swap_id: swapId,
-    swap_type: params.swapType ?? "fiat_to_btc",
+    swap_type:
+      params.swapType ?? (params.corridor ? "cross_border" : "fiat_to_btc"),
     agent: params.agentPubkey,
     customer,
     escrow_reference: params.escrowReference,
     fiat: params.fiat,
     bitcoin: params.bitcoin,
+    ...(params.corridor ? { corridor: params.corridor } : {}),
     expiry: params.expiry ?? nowSeconds() + DEFAULT_EXPIRY_SECONDS,
   });
 
@@ -279,6 +283,7 @@ export function buildSnapshotContent(
     swap_type: request.swap_type,
     fiat: request.fiat,
     bitcoin: request.bitcoin,
+    ...(request.corridor ? { corridor: request.corridor } : {}),
     transitions,
     ...(evidenceRefs.length ? { evidence_refs: evidenceRefs } : {}),
     completed_at: nowSeconds(),

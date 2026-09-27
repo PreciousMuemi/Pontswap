@@ -43,7 +43,11 @@ export const Coordinate = z
 export const SwapStateSchema = z.enum(SWAP_STATES);
 export const ActorRoleSchema = z.enum(ACTOR_ROLES);
 
-export const SwapTypeSchema = z.enum(["fiat_to_btc", "btc_to_fiat"]);
+export const SwapTypeSchema = z.enum([
+  "fiat_to_btc",
+  "btc_to_fiat",
+  "cross_border", // fiat in (origin) -> BTC-settled -> fiat out (destination)
+]);
 export type SwapType = z.infer<typeof SwapTypeSchema>;
 
 const UnixSeconds = z.number().int().positive();
@@ -64,20 +68,71 @@ const BitcoinLeg = z.object({
 });
 export type BitcoinLeg = z.infer<typeof BitcoinLeg>;
 
+/** ISO 3166-1 alpha-2 country code, e.g. UG, KE. */
+const CountryCode = z
+  .string()
+  .regex(/^[A-Z]{2}$/, "expected ISO 3166-1 alpha-2 country code");
+
+/**
+ * Cross-border corridor, present only when swap_type is "cross_border".
+ *
+ * Holds only what the existing legs cannot express. The origin side is the
+ * `fiat` leg (currency + amount the customer pays, and the rail they pay by);
+ * the BTC settlement amount is the `bitcoin` leg; the selected agent is the
+ * top-level `agent`. Use crossBorderView() for the flattened shape.
+ */
+const Corridor = z.object({
+  origin_country: CountryCode,
+  destination_country: CountryCode,
+  destination_currency: z.string().min(3).max(8),
+  // What the recipient receives. Optional: there is no rate/quote source yet,
+  // so absent means "pending a quote" — never fill it with an invented rate.
+  destination_amount: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/)
+    .optional(),
+  payout_method: z.string().min(1), // mpesa, bank-transfer, ... (destination rail)
+  settlement_asset: z.enum(["BTC"]),
+});
+export type Corridor = z.infer<typeof Corridor>;
+
+/** A corridor is required for cross_border and forbidden for other types. */
+function corridorMatchesSwapType(
+  v: { swap_type: SwapType; corridor?: Corridor },
+  ctx: z.RefinementCtx,
+) {
+  if (v.swap_type === "cross_border" && !v.corridor) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["corridor"],
+      message: "cross_border swaps require a corridor",
+    });
+  } else if (v.swap_type !== "cross_border" && v.corridor) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["corridor"],
+      message: "corridor is only valid on cross_border swaps",
+    });
+  }
+}
+
 // --- PIP-02 content schemas ---------------------------------------------
 
 /** kind 7300 — immutable swap request. */
-export const SwapRequestContent = z.object({
-  version: z.literal(1),
-  swap_id: z.string().min(1),
-  swap_type: SwapTypeSchema,
-  agent: HexPubkey,
-  customer: HexPubkey,
-  escrow_reference: Coordinate,
-  fiat: FiatLeg,
-  bitcoin: BitcoinLeg,
-  expiry: UnixSeconds,
-});
+export const SwapRequestContent = z
+  .object({
+    version: z.literal(1),
+    swap_id: z.string().min(1),
+    swap_type: SwapTypeSchema,
+    agent: HexPubkey,
+    customer: HexPubkey,
+    escrow_reference: Coordinate,
+    fiat: FiatLeg,
+    bitcoin: BitcoinLeg,
+    corridor: Corridor.optional(),
+    expiry: UnixSeconds,
+  })
+  .superRefine(corridorMatchesSwapType);
 export type SwapRequestContent = z.infer<typeof SwapRequestContent>;
 
 /** kind 7301 — append-only state transition. */
@@ -113,28 +168,31 @@ export const NoteContent = z.object({
 export type NoteContent = z.infer<typeof NoteContent>;
 
 /** kind 30362 — replaceable materialized view of the final swap state. */
-export const SnapshotContent = z.object({
-  swap_id: z.string().min(1),
-  final_state: SwapStateSchema,
-  agent: HexPubkey,
-  customer: HexPubkey,
-  swap_type: SwapTypeSchema,
-  fiat: FiatLeg,
-  bitcoin: BitcoinLeg,
-  transitions: z.array(
-    z.object({
-      state: SwapStateSchema,
-      actor_role: ActorRoleSchema,
-      at: UnixSeconds,
-      event_id: z
-        .string()
-        .regex(/^[0-9a-f]{64}$/i)
-        .optional(),
-    }),
-  ),
-  evidence_refs: z.array(z.string()).optional(),
-  completed_at: UnixSeconds,
-});
+export const SnapshotContent = z
+  .object({
+    swap_id: z.string().min(1),
+    final_state: SwapStateSchema,
+    agent: HexPubkey,
+    customer: HexPubkey,
+    swap_type: SwapTypeSchema,
+    fiat: FiatLeg,
+    bitcoin: BitcoinLeg,
+    corridor: Corridor.optional(),
+    transitions: z.array(
+      z.object({
+        state: SwapStateSchema,
+        actor_role: ActorRoleSchema,
+        at: UnixSeconds,
+        event_id: z
+          .string()
+          .regex(/^[0-9a-f]{64}$/i)
+          .optional(),
+      }),
+    ),
+    evidence_refs: z.array(z.string()).optional(),
+    completed_at: UnixSeconds,
+  })
+  .superRefine(corridorMatchesSwapType);
 export type SnapshotContent = z.infer<typeof SnapshotContent>;
 
 // --- PIP-00 / PIP-01 discovery content (read-only) ----------------------
@@ -238,6 +296,49 @@ export function parseContent<T extends z.ZodTypeAny>(
   content: string,
 ): z.infer<T> {
   return schema.parse(JSON.parse(content));
+}
+
+/** Flattened view of a cross-border swap request. */
+export type CrossBorderView = {
+  origin_country: string;
+  destination_country: string;
+  origin_currency: string;
+  destination_currency: string;
+  amount: string;
+  /** null until a quote exists. */
+  destination_amount: string | null;
+  payout_method: string;
+  settlement_asset: Corridor["settlement_asset"];
+  agent: string;
+};
+
+/**
+ * Flatten a cross_border request into one record, or null for other swap
+ * types. Origin currency and amount come from the `fiat` leg.
+ */
+export function crossBorderView(
+  request: Pick<SwapRequestContent, "agent" | "fiat" | "corridor">,
+): CrossBorderView | null {
+  const c = request.corridor;
+  if (!c) return null;
+  return {
+    origin_country: c.origin_country,
+    destination_country: c.destination_country,
+    origin_currency: request.fiat.currency,
+    destination_currency: c.destination_currency,
+    amount: request.fiat.amount,
+    destination_amount: c.destination_amount ?? null,
+    payout_method: c.payout_method,
+    settlement_asset: c.settlement_asset,
+    agent: request.agent,
+  };
+}
+
+/** "12500 KES", or "KES — amount pending a quote" when no quote exists yet. */
+export function destinationAmountLabel(corridor: Corridor): string {
+  return corridor.destination_amount
+    ? `${corridor.destination_amount} ${corridor.destination_currency}`
+    : `${corridor.destination_currency} — amount pending a quote`;
 }
 
 /**

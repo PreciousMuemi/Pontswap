@@ -27,6 +27,7 @@ import {
   KIND_NOTE,
   KIND_SNAPSHOT,
   SnapshotContent,
+  destinationAmountLabel,
 } from "@/lib/pontmore/kinds";
 import { isTerminal } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
@@ -159,6 +160,14 @@ export default function ExplorerPage() {
                 {request.fiat.amount} {request.fiat.currency} →{" "}
                 {request.bitcoin.amount_sats} sats · {request.swap_type}
               </p>
+              {request.corridor && (
+                <p className="text-neutral-600 dark:text-neutral-400">
+                  {request.corridor.origin_country} →{" "}
+                  {request.corridor.destination_country} · payout{" "}
+                  {destinationAmountLabel(request.corridor)} via{" "}
+                  {request.corridor.payout_method}
+                </p>
+              )}
               <p className="text-xs text-neutral-500">
                 customer {shortNpub(request.customer)} · agent{" "}
                 {shortNpub(request.agent)}

@@ -40,6 +40,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 const FIAT_AMOUNT_RE = /^\d+(\.\d+)?$/;
 const SATS_RE = /^\d+$/;
+const COUNTRY_RE = /^[A-Z]{2}$/;
 
 function NewSwapInner() {
   const params = useSearchParams();
@@ -129,6 +130,13 @@ function SwapForm({
     caps?.settlement_networks?.[0] ?? "lightning",
   );
 
+  // Cross-border corridor. Origin currency/amount reuse the fiat leg above.
+  const [crossBorder, setCrossBorder] = useState(false);
+  const [originCountry, setOriginCountry] = useState("");
+  const [destCountry, setDestCountry] = useState("");
+  const [destCurrency, setDestCurrency] = useState("");
+  const [payoutMethod, setPayoutMethod] = useState("mpesa");
+
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -163,6 +171,20 @@ function SwapForm({
       setError("Currency code looks too short.");
       return;
     }
+    if (crossBorder) {
+      if (!COUNTRY_RE.test(originCountry) || !COUNTRY_RE.test(destCountry)) {
+        setError("Countries must be 2-letter ISO codes, e.g. UG, KE.");
+        return;
+      }
+      if (destCurrency.trim().length < 3) {
+        setError("Destination currency code looks too short.");
+        return;
+      }
+      if (!payoutMethod.trim()) {
+        setError("Payout method is required.");
+        return;
+      }
+    }
 
     setSubmitting(true);
     try {
@@ -175,6 +197,17 @@ function SwapForm({
           rail: fiatRail.trim(),
         },
         bitcoin: { amount_sats: sats.trim(), payout: payout.trim() },
+        ...(crossBorder
+          ? {
+              corridor: {
+                origin_country: originCountry,
+                destination_country: destCountry,
+                destination_currency: destCurrency.trim(),
+                payout_method: payoutMethod.trim(),
+                settlement_asset: "BTC" as const,
+              },
+            }
+          : {}),
       });
       router.push(`/swap/${swapId}`);
     } catch (err) {
@@ -187,13 +220,39 @@ function SwapForm({
 
   return (
     <form onSubmit={onSubmit} className="mt-6 space-y-5">
-      <p className="text-xs text-neutral-500">
-        Direction: <span className="font-medium">fiat → BTC</span>. v1 only
-        supports fiat → BTC.
-      </p>
+      <div className="flex gap-4 text-xs text-neutral-500">
+        <span>Direction:</span>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            checked={!crossBorder}
+            onChange={() => setCrossBorder(false)}
+          />
+          fiat → BTC
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            checked={crossBorder}
+            onChange={() => setCrossBorder(true)}
+          />
+          cross-border (BTC-settled)
+        </label>
+      </div>
 
       <fieldset className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
         <legend className="px-1 text-sm font-medium">You pay (fiat)</legend>
+        {crossBorder && (
+          <Field label="Origin country">
+            <input
+              value={originCountry}
+              onChange={(e) => setOriginCountry(e.target.value.toUpperCase())}
+              placeholder="UG"
+              maxLength={2}
+              className={inputCls}
+            />
+          </Field>
+        )}
         <div className="grid grid-cols-3 gap-3">
           <Field label="Currency">
             <input
@@ -221,8 +280,48 @@ function SwapForm({
         </Field>
       </fieldset>
 
+      {crossBorder && (
+        <fieldset className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+          <legend className="px-1 text-sm font-medium">
+            Recipient gets (fiat)
+          </legend>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Destination country">
+              <input
+                value={destCountry}
+                onChange={(e) => setDestCountry(e.target.value.toUpperCase())}
+                placeholder="KE"
+                maxLength={2}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Currency">
+              <input
+                value={destCurrency}
+                onChange={(e) => setDestCurrency(e.target.value.toUpperCase())}
+                placeholder="KES"
+                className={inputCls}
+              />
+            </Field>
+          </div>
+          <Field label="Payout method">
+            <input
+              value={payoutMethod}
+              onChange={(e) => setPayoutMethod(e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <p className="text-xs text-neutral-500">
+            Amount: <span className="font-medium">pending a quote</span> — no
+            rate source is connected yet, so the recipient amount is not set.
+          </p>
+        </fieldset>
+      )}
+
       <fieldset className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
-        <legend className="px-1 text-sm font-medium">You receive (BTC)</legend>
+        <legend className="px-1 text-sm font-medium">
+          {crossBorder ? "Settlement (BTC)" : "You receive (BTC)"}
+        </legend>
         <Field label="Amount (sats)">
           <input
             value={sats}
