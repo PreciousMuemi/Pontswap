@@ -68,7 +68,8 @@ export function aiOutputSchema(input: AiRecommendationInput) {
   return z
     .object({
       recommended_pubkey: z.enum(nonEmpty(pubkeys)),
-      recommendation_reason: z.string().min(1).max(300),
+      // Internal, may compare candidates; the customer sees customer_explanation.
+      recommendation_reason: z.string().min(1).max(600),
       supporting_evidence_ids: z.array(z.enum(nonEmpty(evidenceIds))).min(1).max(8),
       missing_information_ids: z.array(z.enum(nonEmpty(missingIds))).max(8),
       evidence_sufficient_to_distinguish: z.boolean(),

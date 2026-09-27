@@ -65,8 +65,14 @@ export default function Home() {
 
       <nav className="flex flex-wrap gap-3">
         <Link
-          href="/agents"
+          href="/swap/new"
           className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-neutral-900"
+        >
+          Send cross-border · get an AI-matched agent
+        </Link>
+        <Link
+          href="/agents"
+          className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium dark:border-neutral-700"
         >
           Browse agents
         </Link>

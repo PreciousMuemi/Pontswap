@@ -130,12 +130,13 @@ export function validateAiOutput(
   const evidence = new Map(candidate.evidence.map((e) => [e.id, e.text]));
   const missing = new Map(candidate.missing.map((e) => [e.id, e.text]));
 
-  // Evidence must belong to the recommended agent — no borrowing another
-  // agent's capabilities.
+  // Supporting evidence must belong to the recommended agent — borrowing
+  // another agent's capabilities is a fabricated claim, so reject.
   const foreignEvidence = out.supporting_evidence_ids.filter((id) => !evidence.has(id));
   if (foreignEvidence.length) return { ok: false, error: `evidence not about this agent: ${foreignEvidence.join(", ")}` };
-  const foreignMissing = out.missing_information_ids.filter((id) => !missing.has(id));
-  if (foreignMissing.length) return { ok: false, error: `missing-info not about this agent: ${foreignMissing.join(", ")}` };
+  // Other agents' gaps are real facts, not capability claims (models cite them
+  // to explain the comparison), but they don't describe this agent: drop them.
+  const ownMissingIds = out.missing_information_ids.filter((id) => missing.has(id));
 
   const inputJson = JSON.stringify(input);
   for (const field of ["recommendation_reason", "customer_explanation"] as const) {
@@ -155,7 +156,7 @@ export function validateAiOutput(
       recommended_agent: agent,
       recommendation_reason: out.recommendation_reason,
       supporting_evidence: [...new Set(out.supporting_evidence_ids)].map((id) => evidence.get(id)!),
-      missing_information: [...new Set(out.missing_information_ids)].map((id) => missing.get(id)!),
+      missing_information: [...new Set(ownMissingIds)].map((id) => missing.get(id)!),
       confidence,
       customer_explanation: out.customer_explanation,
       fallback_reason: null,

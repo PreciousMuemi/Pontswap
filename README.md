@@ -38,7 +38,8 @@ npm run build    # production build + typecheck
 npm run smoke    # publish a 7300 to the relays and read it back
 ```
 
-Default relays (`src/config/relays.ts`): `wss://nos.lol`, `wss://relay.damus.io`.
+Default relays (`src/config/relays.ts`): `wss://nos.lol`, `wss://relay.damus.io`,
+`wss://relay.primal.net`.
 
 ## Identity
 

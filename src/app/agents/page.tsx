@@ -49,6 +49,12 @@ export default function AgentsPage() {
         </a>
         .
       </p>
+      <p className="mt-3 text-sm">
+        Sending across borders and not sure who to pick?{" "}
+        <Link href="/swap/new" className="font-medium underline">
+          Get an agent recommendation →
+        </Link>
+      </p>
 
       <div className="mt-6 space-y-4">
         {status === "loading" && (

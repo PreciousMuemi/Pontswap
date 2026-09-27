@@ -7,4 +7,5 @@
 export const DEFAULT_RELAYS: readonly string[] = [
   "wss://nos.lol",
   "wss://relay.damus.io",
+  "wss://relay.primal.net",
 ];

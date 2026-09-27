@@ -176,6 +176,22 @@ test("fabricated capabilities are rejected", async (t) => {
   }
 });
 
+test("other agents' missing-info IDs are ignored, not fatal (seen from the real model)", async () => {
+  // Real Claude output: recommends the perfect agent (no gaps of its own) and
+  // cites the runners-up' gaps to explain the comparison.
+  const r = await recommendAgent(UG_KE, AGENTS, {
+    provider: mockProvider((input) => {
+      const others = input.candidates.filter((c) => c.pubkey !== pk("a"));
+      return validAnswer(input, pk("a"), {
+        missing_information_ids: others.flatMap((c) => c.missing.slice(0, 1).map((m) => m.id)),
+      });
+    }),
+  });
+  assert.equal(r.source, "ai");
+  assert.equal(r.recommended_pubkey, pk("a"));
+  assert.deepEqual(r.missing_information, []); // none of those gaps describe agent a
+});
+
 test("prose citing supplied numbers and codes is accepted", async () => {
   const r = await recommendAgent(UG_KE, AGENTS, {
     provider: mockProvider((input) =>

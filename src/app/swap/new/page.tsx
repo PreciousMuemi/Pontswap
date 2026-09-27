@@ -328,6 +328,15 @@ function SwapForm({
           cross-border (BTC-settled)
         </label>
       </div>
+      {agent && crossBorder && (
+        <p className="text-xs text-neutral-500">
+          Not sure this agent fits your route?{" "}
+          <Link href="/swap/new" className="underline">
+            Get an agent recommendation
+          </Link>
+          .
+        </p>
+      )}
       {!agent && !crossBorder && (
         <p className="text-xs text-neutral-500">
           For fiat → BTC, pick an agent from the{" "}
