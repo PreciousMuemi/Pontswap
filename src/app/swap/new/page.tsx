@@ -14,6 +14,8 @@ import { tryNpubToHex, shortNpub } from "@/lib/pontmore/nip19";
 import { SignerGate, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
 import { RolePlayBanner } from "@/components/swap/RolePlayBanner";
+import { AgentRecommendation } from "@/components/swap/AgentRecommendation";
+import type { MatchRequest } from "@/lib/matching/agent-matching";
 
 export default function NewSwapPage() {
   return (
@@ -80,14 +82,29 @@ function NewSwapInner() {
     };
   }, [agentHex]);
 
+  // No agent chosen yet: start a cross-border request and let the customer
+  // pick an agent from a recommendation before anything is published.
+  if (!agentParam) {
+    return (
+      <Shell>
+        <h1 className="text-2xl font-semibold">Start a cross-border swap</h1>
+        <p className="mt-2 text-sm text-neutral-500">
+          Enter the details, then choose an agent. We&apos;ll suggest one —
+          you decide.
+        </p>
+        <SignerGate>
+          <SwapForm agent={null} escrow={null} />
+        </SignerGate>
+      </Shell>
+    );
+  }
+
   if (load === "loading") return <Shell>Loading agent…</Shell>;
   if (load === "notfound" || !agent) {
     return (
       <Shell>
         <p className="text-sm text-red-600">
-          {agentParam
-            ? "Could not find that agent on the relays."
-            : "No agent specified. Pick one from the agents list."}
+          Could not find that agent on the relays.
         </p>
       </Shell>
     );
@@ -107,23 +124,29 @@ function NewSwapInner() {
   );
 }
 
+/**
+ * With `agent` set (from ?agent=), this is the original agent-first form.
+ * With `agent` null, the customer describes a cross-border request, gets a
+ * recommendation, and explicitly chooses an agent; the chosen agent then
+ * goes through the same publish path.
+ */
 function SwapForm({
   agent,
   escrow,
 }: {
-  agent: AgentDefinition;
+  agent: AgentDefinition | null;
   escrow: EscrowDescriptor | null;
 }) {
   const router = useRouter();
   const { signer, pubkey } = useSigner();
-  const caps = agent.content.capabilities;
+  const caps = agent?.content.capabilities;
 
   const [fiatCurrency, setFiatCurrency] = useState(
-    caps?.fiat_currencies?.[0] ?? "KES",
+    agent ? (caps?.fiat_currencies?.[0] ?? "KES") : "",
   );
   const [fiatAmount, setFiatAmount] = useState("");
   const [fiatRail, setFiatRail] = useState(
-    caps?.payment_channels?.[0] ?? "mpesa",
+    agent ? (caps?.payment_channels?.[0] ?? "mpesa") : "",
   );
   const [sats, setSats] = useState("");
   const [payout, setPayout] = useState(
@@ -131,7 +154,7 @@ function SwapForm({
   );
 
   // Cross-border corridor. Origin currency/amount reuse the fiat leg above.
-  const [crossBorder, setCrossBorder] = useState(false);
+  const [crossBorder, setCrossBorder] = useState(!agent);
   const [originCountry, setOriginCountry] = useState("");
   const [destCountry, setDestCountry] = useState("");
   const [destCurrency, setDestCurrency] = useState("");
@@ -140,8 +163,76 @@ function SwapForm({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const noEscrow = !agent.escrowReference;
-  const cannotSubmitToSelf = pubkey === agent.pubkey;
+  // Recommendation + customer choice (agent-less mode only). `recommendFor`
+  // snapshots the request the recommendation was made for; editing any field
+  // afterwards makes it stale, which clears the choice.
+  const [recommendFor, setRecommendFor] = useState<{
+    key: string;
+    request: MatchRequest;
+    nonce: number;
+    invalidated: boolean;
+  } | null>(null);
+  const [chosen, setChosen] = useState<AgentDefinition | null>(null);
+  const [choosing, setChoosing] = useState<string | null>(null);
+  const [chooseError, setChooseError] = useState<string | null>(null);
+
+  const matchRequest: MatchRequest = {
+    origin_country: originCountry,
+    destination_country: destCountry,
+    origin_currency: fiatCurrency.trim().toUpperCase(),
+    destination_currency: destCurrency.trim(),
+    amount: fiatAmount.trim(),
+    payout_method: payoutMethod.trim(),
+    settlement_asset: "BTC",
+    ...(payout.trim() ? { settlement_network: payout.trim() } : {}),
+  };
+  const requestKey = JSON.stringify(matchRequest);
+  // Once the details change, the recommendation is discarded for good —
+  // changing them back does not silently restore it or re-run the AI.
+  const stale = !!recommendFor && (recommendFor.invalidated || recommendFor.key !== requestKey);
+  useEffect(() => {
+    if (recommendFor && !recommendFor.invalidated && recommendFor.key !== requestKey) {
+      setRecommendFor({ ...recommendFor, invalidated: true });
+    }
+  }, [recommendFor, requestKey]);
+  const chosenAgent = !agent && !stale && crossBorder ? chosen : null;
+
+  // The agent the swap will be published to: preselected, or customer-chosen.
+  const target = agent ?? chosenAgent;
+  const noEscrow = !!target && !target.escrowReference;
+  const cannotSubmitToSelf = !!target && pubkey === target.pubkey;
+  const awaitingChoice = !agent && !!recommendFor && !stale && !chosenAgent;
+
+  function fieldError(): string | null {
+    if (!FIAT_AMOUNT_RE.test(fiatAmount)) return "Fiat amount must be a number, e.g. 5000.";
+    if (!SATS_RE.test(sats)) return "Bitcoin amount must be a whole number of sats.";
+    if (fiatCurrency.trim().length < 3) return "Currency code looks too short.";
+    if (!fiatRail.trim()) return "Rail is required, e.g. mtn-momo.";
+    if (crossBorder) {
+      if (!COUNTRY_RE.test(originCountry) || !COUNTRY_RE.test(destCountry)) {
+        return "Countries must be 2-letter ISO codes, e.g. UG, KE.";
+      }
+      if (destCurrency.trim().length < 3) return "Destination currency code looks too short.";
+      if (!payoutMethod.trim()) return "Payout method is required.";
+    }
+    return null;
+  }
+
+  async function chooseAgent(agentPubkey: string) {
+    setChooseError(null);
+    setChoosing(agentPubkey);
+    try {
+      // Same client-side discovery the ?agent= path uses.
+      const a = (await fetchAgent(agentPubkey)) ?? (await fetchAgent(agentPubkey));
+      if (!a) setChooseError("Couldn't load this agent from the network. Try again.");
+      else if (!a.escrowReference) setChooseError("This agent has no escrow descriptor — choose another agent.");
+      else setChosen(a);
+    } catch {
+      setChooseError("Couldn't load this agent from the network. Try again.");
+    } finally {
+      setChoosing(null);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -151,6 +242,25 @@ function SwapForm({
       setError("Connect an identity first.");
       return;
     }
+
+    // Agent-less mode, no agent chosen yet: validate and ask for a
+    // recommendation. Nothing is published here.
+    if (!target) {
+      if (!crossBorder) {
+        setError("For fiat → BTC, pick an agent from the agents list.");
+        return;
+      }
+      const invalid = fieldError();
+      if (invalid) {
+        setError(invalid);
+        return;
+      }
+      setChosen(null);
+      setChooseError(null);
+      setRecommendFor({ key: requestKey, request: matchRequest, nonce: Date.now(), invalidated: false });
+      return;
+    }
+
     if (noEscrow) {
       setError("This agent has no escrow descriptor — cannot start a swap.");
       return;
@@ -159,38 +269,17 @@ function SwapForm({
       setError("You cannot open a swap with your own agent identity.");
       return;
     }
-    if (!FIAT_AMOUNT_RE.test(fiatAmount)) {
-      setError("Fiat amount must be a number, e.g. 5000.");
+    const invalid = fieldError();
+    if (invalid) {
+      setError(invalid);
       return;
-    }
-    if (!SATS_RE.test(sats)) {
-      setError("Bitcoin amount must be a whole number of sats.");
-      return;
-    }
-    if (fiatCurrency.trim().length < 3) {
-      setError("Currency code looks too short.");
-      return;
-    }
-    if (crossBorder) {
-      if (!COUNTRY_RE.test(originCountry) || !COUNTRY_RE.test(destCountry)) {
-        setError("Countries must be 2-letter ISO codes, e.g. UG, KE.");
-        return;
-      }
-      if (destCurrency.trim().length < 3) {
-        setError("Destination currency code looks too short.");
-        return;
-      }
-      if (!payoutMethod.trim()) {
-        setError("Payout method is required.");
-        return;
-      }
     }
 
     setSubmitting(true);
     try {
       const { swapId } = await publishSwapRequest(signer, {
-        agentPubkey: agent.pubkey,
-        escrowReference: agent.escrowReference!,
+        agentPubkey: target.pubkey,
+        escrowReference: target.escrowReference!,
         fiat: {
           currency: fiatCurrency.trim(),
           amount: fiatAmount.trim(),
@@ -239,6 +328,15 @@ function SwapForm({
           cross-border (BTC-settled)
         </label>
       </div>
+      {!agent && !crossBorder && (
+        <p className="text-xs text-neutral-500">
+          For fiat → BTC, pick an agent from the{" "}
+          <Link href="/agents" className="underline">
+            agents list
+          </Link>
+          .
+        </p>
+      )}
 
       <fieldset className="space-y-3 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
         <legend className="px-1 text-sm font-medium">You pay (fiat)</legend>
@@ -340,27 +438,56 @@ function SwapForm({
         </Field>
       </fieldset>
 
-      <div className="text-xs text-neutral-500">
-        Escrow:{" "}
-        {noEscrow ? (
-          <span className="text-red-600">none linked</span>
-        ) : escrow ? (
-          <span>
-            {escrow.content.escrow_type} ({agent.escrowReference})
-          </span>
-        ) : (
-          <span className="font-mono">{agent.escrowReference}</span>
-        )}
-      </div>
+      {!agent && crossBorder && recommendFor && !stale && (
+        <AgentRecommendation
+          key={recommendFor.nonce}
+          request={recommendFor.request}
+          chosenPubkey={chosenAgent?.pubkey ?? null}
+          choosingPubkey={choosing}
+          chooseError={chooseError}
+          onChoose={chooseAgent}
+          onClear={() => setChosen(null)}
+        />
+      )}
+      {!agent && crossBorder && stale && (
+        <p className="text-xs text-neutral-500">
+          The details changed — find an agent again for the updated request.
+        </p>
+      )}
+
+      {agent ? (
+        <div className="text-xs text-neutral-500">
+          Escrow:{" "}
+          {noEscrow ? (
+            <span className="text-red-600">none linked</span>
+          ) : escrow ? (
+            <span>
+              {escrow.content.escrow_type} ({agent.escrowReference})
+            </span>
+          ) : (
+            <span className="font-mono">{agent.escrowReference}</span>
+          )}
+        </div>
+      ) : chosenAgent ? (
+        <div className="text-xs text-neutral-500">Escrow: linked</div>
+      ) : null}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <button
         type="submit"
-        disabled={submitting || noEscrow}
+        disabled={submitting || noEscrow || awaitingChoice || (!agent && !crossBorder)}
         className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
       >
-        {submitting ? "Publishing 7300…" : "Publish swap request"}
+        {submitting
+          ? "Publishing 7300…"
+          : agent
+            ? "Publish swap request"
+            : chosenAgent
+              ? `Publish swap request to ${chosenAgent.content.name}`
+              : awaitingChoice
+                ? "Choose an agent above to continue"
+                : "Find an agent"}
       </button>
     </form>
   );
