@@ -43,6 +43,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 const FIAT_AMOUNT_RE = /^\d+(\.\d+)?$/;
 const SATS_RE = /^\d+$/;
 const COUNTRY_RE = /^[A-Z]{2}$/;
+const CURRENCY_CODE_RE = /^[A-Z]{3}$/;
 
 function NewSwapInner() {
   const params = useSearchParams();
@@ -205,14 +206,24 @@ function SwapForm({
 
   function fieldError(): string | null {
     if (!FIAT_AMOUNT_RE.test(fiatAmount)) return "Fiat amount must be a number, e.g. 5000.";
-    if (!SATS_RE.test(sats)) return "Bitcoin amount must be a whole number of sats.";
+    // Cross-border: sats are optional (set at settlement); if given, must be valid.
+    if (!(crossBorder && !sats.trim()) && !SATS_RE.test(sats.trim())) {
+      return "Bitcoin amount must be a whole number of sats.";
+    }
     if (fiatCurrency.trim().length < 3) return "Currency code looks too short.";
     if (!fiatRail.trim()) return "Rail is required, e.g. mtn-momo.";
     if (crossBorder) {
       if (!COUNTRY_RE.test(originCountry) || !COUNTRY_RE.test(destCountry)) {
         return "Countries must be 2-letter ISO codes, e.g. UG, KE.";
       }
-      if (destCurrency.trim().length < 3) return "Destination currency code looks too short.";
+      // Cross-border matching compares currency codes, so an amount typed
+      // into a currency box would silently match nothing.
+      if (!CURRENCY_CODE_RE.test(fiatCurrency.trim().toUpperCase())) {
+        return "Your currency must be a 3-letter code, e.g. UGX.";
+      }
+      if (!CURRENCY_CODE_RE.test(destCurrency.trim())) {
+        return "The recipient's currency must be a 3-letter code, e.g. KES — not an amount.";
+      }
       if (!payoutMethod.trim()) return "Payout method is required.";
     }
     return null;
@@ -285,7 +296,10 @@ function SwapForm({
           amount: fiatAmount.trim(),
           rail: fiatRail.trim(),
         },
-        bitcoin: { amount_sats: sats.trim(), payout: payout.trim() },
+        bitcoin: {
+          ...(sats.trim() ? { amount_sats: sats.trim() } : {}),
+          payout: payout.trim(),
+        },
         ...(crossBorder
           ? {
               corridor: {
@@ -361,10 +375,14 @@ function SwapForm({
           </Field>
         )}
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Currency">
+          <Field label={crossBorder ? "Currency code" : "Currency"}>
             <input
               value={fiatCurrency}
-              onChange={(e) => setFiatCurrency(e.target.value)}
+              onChange={(e) =>
+                setFiatCurrency(crossBorder ? e.target.value.toUpperCase() : e.target.value)
+              }
+              placeholder={crossBorder ? "UGX" : undefined}
+              maxLength={crossBorder ? 3 : undefined}
               className={inputCls}
             />
           </Field>
@@ -402,11 +420,12 @@ function SwapForm({
                 className={inputCls}
               />
             </Field>
-            <Field label="Currency">
+            <Field label="Currency code">
               <input
                 value={destCurrency}
                 onChange={(e) => setDestCurrency(e.target.value.toUpperCase())}
                 placeholder="KES"
+                maxLength={3}
                 className={inputCls}
               />
             </Field>
@@ -429,12 +448,21 @@ function SwapForm({
         <legend className="px-1 text-sm font-medium">
           {crossBorder ? "Settlement (BTC)" : "You receive (BTC)"}
         </legend>
-        <Field label="Amount (sats)">
+        {crossBorder && (
+          <p className="text-xs text-neutral-500">
+            Why bitcoin? It&apos;s the settlement layer behind the swap: the
+            agent locks BTC in escrow as a guarantee while you pay in your
+            currency, and it settles the swap at the end — no bank corridor
+            needed. You can leave the amount empty — it&apos;s set at settlement.
+            Demo only: no real bitcoin moves.
+          </p>
+        )}
+        <Field label={crossBorder ? "Amount (sats) — optional" : "Amount (sats)"}>
           <input
             value={sats}
             onChange={(e) => setSats(e.target.value)}
             inputMode="numeric"
-            placeholder="3200000"
+            placeholder={crossBorder ? "Set at settlement" : "3200000"}
             className={inputCls}
           />
         </Field>

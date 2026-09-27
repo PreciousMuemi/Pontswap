@@ -21,7 +21,7 @@ import {
   type ActorRole,
 } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
-import { destinationAmountLabel } from "@/lib/pontmore/kinds";
+import { destinationAmountLabel, satsLabel } from "@/lib/pontmore/kinds";
 import { SignerGate, SignerBadge, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
 import { StateTimeline } from "@/components/swap/StateTimeline";
@@ -153,13 +153,13 @@ export default function SwapRoomPage() {
               />
               <Detail
                 label="Settlement"
-                value={`${request.bitcoin.amount_sats} sats ${request.corridor.settlement_asset} (${request.bitcoin.payout})`}
+                value={`${request.corridor.settlement_asset} · ${satsLabel(request.bitcoin)} (${request.bitcoin.payout})`}
               />
             </>
           ) : (
             <Detail
               label="You receive"
-              value={`${request.bitcoin.amount_sats} sats (${request.bitcoin.payout})`}
+              value={`${satsLabel(request.bitcoin)} (${request.bitcoin.payout})`}
             />
           )}
           <Detail

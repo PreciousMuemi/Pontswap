@@ -13,10 +13,12 @@ import {
 } from "@/lib/pontmore/swap";
 import {
   destinationAmountLabel,
+  satsLabel,
   type SwapRequestContent,
 } from "@/lib/pontmore/kinds";
 import { canTransition, type SwapState } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
+import { fetchAgent } from "@/lib/pontmore/discovery";
 import { SignerGate, SignerBadge, useSigner } from "@/components/SignerGate";
 import { RelayStatus } from "@/components/RelayStatus";
 import { RolePlayBanner } from "@/components/swap/RolePlayBanner";
@@ -70,20 +72,63 @@ function Inbox() {
     (a, b) => b.event.created_at - a.event.created_at,
   );
 
-  if (list.length === 0) {
+  return (
+    <>
+      {pubkey && <AgentIdentity pubkey={pubkey} />}
+      {list.length === 0 ? (
+        <p className="mt-6 text-sm text-neutral-500">
+          Waiting for swap requests… they appear here in real time.
+        </p>
+      ) : (
+        <div className="mt-6 space-y-4">
+          {list.map((item) => (
+            <RequestCard key={item.event.id} item={item} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Shows which published agent this identity is, so a customer's request sent
+ * to a different agent isn't mistaken for a broken inbox.
+ */
+function AgentIdentity({ pubkey }: { pubkey: string }) {
+  const [agent, setAgent] = useState<
+    { status: "loading" } | { status: "found"; name: string } | { status: "none" }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let active = true;
+    setAgent({ status: "loading" });
+    fetchAgent(pubkey)
+      .then((a) => active && setAgent(a ? { status: "found", name: a.content.name } : { status: "none" }))
+      .catch(() => active && setAgent({ status: "none" }));
+    return () => {
+      active = false;
+    };
+  }, [pubkey]);
+
+  if (agent.status === "loading") return null;
+  if (agent.status === "found") {
     return (
-      <p className="mt-6 text-sm text-neutral-500">
-        Waiting for swap requests… they appear here in real time.
+      <p className="mt-4 text-sm">
+        Signed in as agent <span className="font-medium">{agent.name}</span>{" "}
+        <span className="font-mono text-xs text-neutral-500">{shortNpub(pubkey)}</span>.
+        {" "}
+        <span className="text-neutral-500">
+          Only requests sent to this agent appear here.
+        </span>
       </p>
     );
   }
-
   return (
-    <div className="mt-6 space-y-4">
-      {list.map((item) => (
-        <RequestCard key={item.event.id} item={item} />
-      ))}
-    </div>
+    <p className="mt-4 rounded bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      This identity ({shortNpub(pubkey)}) has no published agent profile, so
+      customers can&apos;t find or choose it. To receive a request, sign in with
+      the key of the agent the customer chose.
+    </p>
   );
 }
 
@@ -151,7 +196,7 @@ function RequestCard({ item }: { item: Item }) {
           <p className="mt-1 text-lg font-semibold">
             {content.fiat.amount} {content.fiat.currency}
             <span className="text-neutral-400"> → </span>
-            {content.bitcoin.amount_sats} sats
+            {satsLabel(content.bitcoin)}
           </p>
           <p className="text-xs text-neutral-500">
             via {content.fiat.rail} · payout {content.bitcoin.payout}

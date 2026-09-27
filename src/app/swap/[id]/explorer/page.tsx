@@ -28,6 +28,7 @@ import {
   KIND_SNAPSHOT,
   SnapshotContent,
   destinationAmountLabel,
+  satsLabel,
 } from "@/lib/pontmore/kinds";
 import { isTerminal } from "@/lib/pontmore/states";
 import { shortNpub } from "@/lib/pontmore/nip19";
@@ -158,7 +159,7 @@ export default function ExplorerPage() {
               <p className="font-medium">Swap request</p>
               <p className="mt-1 text-neutral-600 dark:text-neutral-400">
                 {request.fiat.amount} {request.fiat.currency} →{" "}
-                {request.bitcoin.amount_sats} sats · {request.swap_type}
+                {satsLabel(request.bitcoin)} · {request.swap_type}
               </p>
               {request.corridor && (
                 <p className="text-neutral-600 dark:text-neutral-400">
@@ -209,7 +210,7 @@ function kindLabel(event: Event): { label: string; detail: string } {
       return {
         label: "7300 request",
         detail: c
-          ? `${c.fiat.amount} ${c.fiat.currency} → ${c.bitcoin.amount_sats} sats`
+          ? `${c.fiat.amount} ${c.fiat.currency} → ${satsLabel(c.bitcoin)}`
           : "unparseable",
       };
     }

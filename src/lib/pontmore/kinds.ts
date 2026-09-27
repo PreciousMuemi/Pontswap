@@ -63,7 +63,9 @@ const FiatLeg = z.object({
 export type FiatLeg = z.infer<typeof FiatLeg>;
 
 const BitcoinLeg = z.object({
-  amount_sats: z.string().regex(/^\d+$/),
+  // Required for fiat_to_btc. Optional for cross_border, where BTC is only the
+  // settlement layer and the amount is set at settlement (no quote source yet).
+  amount_sats: z.string().regex(/^\d+$/).optional(),
   payout: z.string().min(1), // lightning, onchain, ...
 });
 export type BitcoinLeg = z.infer<typeof BitcoinLeg>;
@@ -98,9 +100,16 @@ export type Corridor = z.infer<typeof Corridor>;
 
 /** A corridor is required for cross_border and forbidden for other types. */
 function corridorMatchesSwapType(
-  v: { swap_type: SwapType; corridor?: Corridor },
+  v: { swap_type: SwapType; corridor?: Corridor; bitcoin: BitcoinLeg },
   ctx: z.RefinementCtx,
 ) {
+  if (v.swap_type !== "cross_border" && !v.bitcoin.amount_sats) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["bitcoin", "amount_sats"],
+      message: "amount_sats is required unless the swap is cross_border",
+    });
+  }
   if (v.swap_type === "cross_border" && !v.corridor) {
     ctx.addIssue({
       code: "custom",
@@ -332,6 +341,11 @@ export function crossBorderView(
     settlement_asset: c.settlement_asset,
     agent: request.agent,
   };
+}
+
+/** "25000 sats", or "set at settlement" when a cross-border request omits it. */
+export function satsLabel(bitcoin: BitcoinLeg): string {
+  return bitcoin.amount_sats ? `${bitcoin.amount_sats} sats` : "sats set at settlement";
 }
 
 /** "12500 KES", or "KES — amount pending a quote" when no quote exists yet. */

@@ -9,7 +9,7 @@
     "smoke": "tsx scripts/smoke-test-swap.ts",
     "agent:publish": "tsx scripts/publish-test-agent.ts",
     "agents:publish": "tsx scripts/publish-demo-agents.ts",
-    "test": "tsx --test src/lib/matching/agent-matching.test.ts src/lib/recommendation/recommend.test.ts src/lib/recommendation/view.test.ts"
+    "test": "tsx --test src/lib/pontmore/kinds.test.ts src/lib/matching/agent-matching.test.ts src/lib/recommendation/recommend.test.ts src/lib/recommendation/view.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
